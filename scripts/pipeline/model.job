@@ -1,0 +1,31 @@
+#!/bin/bash
+
+#SBATCH -p GPU-shared
+#SBATCH -t 0:30:00
+#SBATCH --gres=gpu:v100-16:1
+
+
+module load anaconda3
+#echo commands to stdout
+set -x
+
+conda activate dl
+
+# change to working directory
+cd $PROJECT'/03713_tss_project'
+
+
+tr_species_data='processed_data/data_v2/human'
+ts_species_data='processed_data/data_v2/mouse'
+model_save_dir='learn/models'
+graph_save_dir='learn/plots_v2'
+epochs=35
+feats=10
+
+# Run python file to fix headers
+python learn/2DConvTSS.py $tr_species_data $ts_species_data $model_save_dir $graph_save_dir $epochs $feats
+
+# conda deactivate
+
+# Give fills access
+bash $HOME/refresh_group_access.sh

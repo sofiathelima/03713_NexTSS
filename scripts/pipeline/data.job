@@ -1,0 +1,141 @@
+#!/bin/bash
+
+#SBATCH -N 1
+#SBATCH -p RM-shared
+#SBATCH -t 1:00:00
+#SBATCH --ntasks-per-node=16
+
+# Require raw_data directory (with FANTOM & Label both species files)
+# WRITE REQUIREMENTS AND ASSUMPTIONS i.e. file names
+
+module load anaconda3
+#echo commands to stdout
+set -x
+
+cd /ocean/projects/bio230007p/psimpson/group4/
+
+conda activate dl
+
+SCRIPTS='/ocean/projects/bio230007p/psimpson/group4/scripts'
+# All my group memebers must run: chmod -R g=rx /ocean/projects/bio230007p/psimpson/group4/scripts
+
+# Move to working directory
+cd $PROJECT'/03713_tss_project'
+
+# Create our directory structure
+mkdir -p raw_data/FANTOM
+mkdir -p raw_data/reference_genomes
+mkdir -p raw_data/intermediate
+mkdir -p raw_data/nt_windows/bed/negative
+mkdir -p raw_data/nt_windows/bed/positive
+mkdir -p raw_data/nt_windows/fasta/negative
+mkdir -p raw_data/nt_windows/fasta/positive
+
+# Download human Fantom data
+wget https://fantom.gsc.riken.jp/5/datafiles/reprocessed/hg38_latest/extra/CAGE_peaks/hg38_fair+new_CAGE_peaks_phase1and2.bed.gz -O raw_data/FANTOM/hg38_fantom_CAGE_peaks.bed.gz
+gunzip -d raw_data/FANTOM/hg38_fantom_CAGE_peaks.bed.gz
+sort -k1,1 -k2,2n raw_data/FANTOM/hg38_fantom_CAGE_peaks.bed > raw_data/FANTOM/sorted_hg38_fantom_CAGE_peaks.bed
+
+
+# Download mouse Fantom
+wget https://fantom.gsc.riken.jp/5/datafiles/reprocessed/mm10_latest/extra/CAGE_peaks/mm10_fair+new_CAGE_peaks_phase1and2.bed.gz -O raw_data/FANTOM/mm10_fantom_CAGE_peaks.bed.gz
+gunzip -d raw_data/FANTOM/mm10_fantom_CAGE_peaks.bed.gz
+sort -k1,1 -k2,2n raw_data/FANTOM/mm10_fantom_CAGE_peaks.bed > raw_data/FANTOM/sorted_mm10_fantom_CAGE_peaks.bed
+
+# Download hg38 and mm10 ref genomes
+wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/latest/hg38.fa.gz -P raw_data/reference_genomes
+wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/latest/hg38.chrom.sizes -P raw_data/reference_genomes
+gzip -d raw_data/reference_genomes/hg38.fa.gz  
+sort -k1,1 -k2,2n raw_data/reference_genomes/hg38.chrom.sizes > raw_data/reference_genomes/sorted_hg38.chrom.sizes
+
+wget https://hgdownload.soe.ucsc.edu/goldenPath/mm10/bigZips/latest/mm10.fa.gz -P raw_data/reference_genomes
+wget https://hgdownload.soe.ucsc.edu/goldenPath/mm10/bigZips/latest/mm10.chrom.sizes -P raw_data/reference_genomes
+gzip -d raw_data/reference_genomes/mm10.fa.gz  
+sort -k1,1 -k2,2n raw_data/reference_genomes/mm10.chrom.sizes > raw_data/reference_genomes/sorted_mm10.chrom.sizes
+
+# Intersect human Data
+h_cage='raw_data/FANTOM/hg38_fantom_CAGE_peaks.bed'
+h_epd='raw_data/EPD/hg38_epd_TSS.bed'
+h_int='raw_data/intermediate/intersect_fantom-hg38_epd.bed'
+
+bash 'scripts/data_preprocessing/Run_bedtools_intersect.sh' $h_cage $h_epd $h_int
+
+# Intersect mouse Data
+m_cage='raw_data/FANTOM/mm10_fantom_CAGE_peaks.bed'
+m_epd='raw_data/EPD/mm10_epd_TSS.bed'
+m_int='raw_data/intermediate/intersect_fantom-mm10_epd.bed'
+
+bash 'scripts/data_preprocessing/Run_bedtools_intersect.sh' $m_cage $m_epd $m_int
+
+# Complement Human negative samples
+h_sorted_cage='raw_data/FANTOM/sorted_hg38_fantom_CAGE_peaks.bed'
+h_chr_size='raw_data/reference_genomes/sorted_hg38.chrom.sizes'
+h_comp='raw_data/intermediate/human_negative_complement.bed'
+
+bash 'scripts/data_preprocessing/Run_bedtools_complement.sh' $h_sorted_cage $h_chr_size $h_comp
+# bash 'scripts/data_preprocessing/Run_bedtools_complement.sh' $h_int $h_chr_size $h_comp
+
+# Complement mouse negative sample
+m_sorted_cage='raw_data/FANTOM/sorted_mm10_fantom_CAGE_peaks.bed'
+m_chr_size='raw_data/reference_genomes/sorted_mm10.chrom.sizes'
+m_comp='raw_data/intermediate/mouse_negative_complement.bed'
+
+bash 'scripts/data_preprocessing/Run_bedtools_complement.sh' $m_sorted_cage $m_chr_size $m_comp
+# bash 'scripts/data_preprocessing/Run_bedtools_complement.sh' $m_int $m_chr_size $m_comp
+
+# Generate window bed file for positive human sequences
+h_pos_window_bed="raw_data/nt_windows/bed/positive/human_PositiveSampleWindows.bed"
+
+python 'scripts/data_preprocessing/Generate_bed_For_getfasta.py' $h_int $h_pos_window_bed
+
+# Generate window bed file for positive mouse sequences
+m_pos_window_bed="raw_data/nt_windows/bed/positive/mouse_PositiveSampleWindows.bed"
+
+python 'scripts/data_preprocessing/Generate_bed_For_getfasta.py' $m_int $m_pos_window_bed
+
+# Generate human negative sample coordinates bed file
+neg_bed_py='scripts/data_preprocessing/Get_Negative_BED_v2.py'
+h_neg_window_bed='raw_data/nt_windows/bed/negative/human_NegativeSampleWindows.bed'
+
+bash 'scripts/data_preprocessing/Get_NegativeBED.sh' $neg_bed_py $h_comp $h_pos_window_bed $h_neg_window_bed
+
+# Generate mouse negative sample coordinates bed file
+m_neg_window_bed='raw_data/nt_windows/bed/negative/mouse_NegativeSampleWindows.bed'
+
+bash 'scripts/data_preprocessing/Get_NegativeBED.sh' $neg_bed_py $m_comp $m_pos_window_bed $m_neg_window_bed
+
+# Getfatsa on human positive bed
+h_ref_genome="raw_data/reference_genomes/hg38.fa"
+h_pos_window_fa="raw_data/nt_windows/fasta/positive/human_positive_windows.fa"
+
+bash 'scripts/data_preprocessing/Run_bedtools_getfasta.sh' $h_pos_window_bed $h_ref_genome $h_pos_window_fa
+
+# Getfasta on mouse positive bed
+m_ref_genome="raw_data/reference_genomes/mm10.fa"
+m_pos_window_fa="raw_data/nt_windows/fasta/positive/mouse_positive_windows.fa"
+
+bash 'scripts/data_preprocessing/Run_bedtools_getfasta.sh' $m_pos_window_bed $m_ref_genome $m_pos_window_fa
+
+# Getfasta on human on negative files
+h_neg_window_fa="raw_data/nt_windows/fasta/negative/human_negative_windows.fa"
+
+bash 'scripts/data_preprocessing/Run_bedtools_getfasta.sh' $h_neg_window_bed $h_ref_genome $h_neg_window_fa
+
+# Getfasta on mouse on negative files
+m_neg_window_fa="raw_data/nt_windows/fasta/negative/mouse_negative_windows.fa"
+
+bash 'scripts/data_preprocessing/Run_bedtools_getfasta.sh' $m_neg_window_bed $m_ref_genome $m_neg_window_fa
+
+# Replace any instance of "N" in the fasta file with a random nucleotide
+h_pos_window_NoN_fa="raw_data/nt_windows/fasta/positive/human_positive_windows_NoN.fa"
+h_neg_window_NoN_fa="raw_data/nt_windows/fasta/negative/human_negative_windows_NoN.fa"
+m_pos_window_NoN_fa="raw_data/nt_windows/fasta/positive/mouse_positive_windows_NoN.fa"
+m_neg_window_NoN_fa="raw_data/nt_windows/fasta/negative/mouse_negative_windows_NoN.fa"
+
+awk -v target_char="N" -v predef_list="ACTG" 'BEGIN {OFS=FS=""} {for (i=1; i<=NF; i++) if (toupper($i) == target_char) $i = substr(predef_list, int(rand() * length(predef_list)) + 1, 1)} 1' $h_pos_window_fa > $h_pos_window_NoN_fa
+awk -v target_char="N" -v predef_list="ACTG" 'BEGIN {OFS=FS=""} {for (i=1; i<=NF; i++) if (toupper($i) == target_char) $i = substr(predef_list, int(rand() * length(predef_list)) + 1, 1)} 1' $h_neg_window_fa > $h_neg_window_NoN_fa
+awk -v target_char="N" -v predef_list="ACTG" 'BEGIN {OFS=FS=""} {for (i=1; i<=NF; i++) if (toupper($i) == target_char) $i = substr(predef_list, int(rand() * length(predef_list)) + 1, 1)} 1' $m_pos_window_fa > $m_pos_window_NoN_fa
+awk -v target_char="N" -v predef_list="ACTG" 'BEGIN {OFS=FS=""} {for (i=1; i<=NF; i++) if (toupper($i) == target_char) $i = substr(predef_list, int(rand() * length(predef_list)) + 1, 1)} 1' $m_neg_window_fa > $m_neg_window_NoN_fa
+
+conda deactivate
+

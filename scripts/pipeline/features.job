@@ -1,0 +1,35 @@
+#!/bin/bash
+
+#SBATCH -N 1
+#SBATCH -p RM-shared
+#SBATCH -t 1:00:00
+#SBATCH --ntasks-per-node=16
+
+# Require raw_data directory (with FANTOM & Label both species files)
+# WRITE REQUIREMENTS AND ASSUMPTIONS i.e. file names
+
+# module load anaconda3
+#echo commands to stdout
+set -x
+
+source ~/.bashrc
+# module load anaconda3
+conda activate dl
+
+# change to working directory
+cd $PROJECT'/03713_tss_project'
+
+version='v2'
+nt_window_path='raw_data/nt_windows'
+enc_py='scripts/data_preprocessing/feature_generation/encode_fasta.py'
+
+# Encode human samples
+human='human'
+
+bash 'scripts/data_preprocessing/Encode_v2_data.sh' $version $human $nt_window_path $enc_py
+
+# Encode mouse samples
+mouse='mouse'
+
+bash 'scripts/data_preprocessing/Encode_v2_data.sh' $version $mouse $nt_window_path $enc_py
+
